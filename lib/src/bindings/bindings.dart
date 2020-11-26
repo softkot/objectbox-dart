@@ -33,3 +33,15 @@ ObjectBoxC loadObjectBoxLib() {
 ObjectBoxC /*?*/ _cachedBindings;
 
 ObjectBoxC get bindings => _cachedBindings ??= loadObjectBoxLib();
+
+/// Init DartAPI in C for async callbacks - only needs to be called once.
+/// See the following issue:
+/// https://github.com/objectbox/objectbox-dart/issues/143
+void initializeDartAPI() {
+  if (!_dartAPIinitialized) {
+    _dartAPIinitialized = true;
+    bindings.obx_dart_init_api(NativeApi.initializeApiDLData);
+  }
+}
+
+bool _dartAPIinitialized = false;

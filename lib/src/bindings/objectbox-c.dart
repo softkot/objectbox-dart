@@ -4802,7 +4802,7 @@ class ObjectBoxC {
   /// /// Sets credentials to authenticate the client with the server.
   /// /// See OBXSyncCredentialsType for available options.
   /// /// The accepted OBXSyncCredentials type depends on your sync-server configuration.
-  /// /// @param data may be NULL, i.e. in combination with OBXSyncCredentialsType_UNCHECKED
+  /// /// @param data may be NULL, i.e. in combination with OBXSyncCredentialsType_NONE
   int obx_sync_credentials(
     ffi.Pointer<OBX_sync> sync_1,
     int type,
@@ -5127,6 +5127,53 @@ class ObjectBoxC {
   }
 
   _dart_obx_sync_listener_change _obx_sync_listener_change;
+
+  int obx_dart_init_api(
+    ffi.Pointer<ffi.Void> data,
+  ) {
+    _obx_dart_init_api ??=
+        _dylib.lookupFunction<_c_obx_dart_init_api, _dart_obx_dart_init_api>(
+            'obx_dart_init_api');
+    return _obx_dart_init_api(
+      data,
+    );
+  }
+
+  _dart_obx_dart_init_api _obx_dart_init_api;
+
+  /// /// @see obx_observe()
+  /// /// Note: use obx_observer_close() to free unassign the observer and free resources after you're done with it
+  ffi.Pointer<OBX_observer> obx_dart_observe(
+    ffi.Pointer<OBX_store> store,
+    int dart_native_port,
+  ) {
+    _obx_dart_observe ??=
+        _dylib.lookupFunction<_c_obx_dart_observe, _dart_obx_dart_observe>(
+            'obx_dart_observe');
+    return _obx_dart_observe(
+      store,
+      dart_native_port,
+    );
+  }
+
+  _dart_obx_dart_observe _obx_dart_observe;
+
+  ffi.Pointer<OBX_observer> obx_dart_observe_single_type(
+    ffi.Pointer<OBX_store> store,
+    int type_id,
+    int dart_native_port,
+  ) {
+    _obx_dart_observe_single_type ??= _dylib.lookupFunction<
+        _c_obx_dart_observe_single_type,
+        _dart_obx_dart_observe_single_type>('obx_dart_observe_single_type');
+    return _obx_dart_observe_single_type(
+      store,
+      type_id,
+      dart_native_port,
+    );
+  }
+
+  _dart_obx_dart_observe_single_type _obx_dart_observe_single_type;
 }
 
 abstract class OBXPropertyType {
@@ -5558,6 +5605,10 @@ const int OBX_ERROR_FILE_CORRUPT = 10502;
 const int OBX_ERROR_FILE_PAGES_CORRUPT = 10503;
 
 const int OBX_ERROR_SCHEMA_OBJECT_NOT_FOUND = 10504;
+
+const int OBX_ERROR_TIME_SERIES_NOT_AVAILABLE = 10601;
+
+const int OBX_ERROR_SYNC_NOT_AVAILABLE = 10602;
 
 typedef _c_obx_version = ffi.Void Function(
   ffi.Pointer<ffi.Int32> major,
@@ -8735,4 +8786,34 @@ typedef _dart_obx_sync_listener_change = void Function(
   ffi.Pointer<OBX_sync> sync_1,
   ffi.Pointer<ffi.NativeFunction<OBX_sync_listener_change>> listener,
   ffi.Pointer<ffi.Void> listener_arg,
+);
+
+typedef _c_obx_dart_init_api = ffi.Int32 Function(
+  ffi.Pointer<ffi.Void> data,
+);
+
+typedef _dart_obx_dart_init_api = int Function(
+  ffi.Pointer<ffi.Void> data,
+);
+
+typedef _c_obx_dart_observe = ffi.Pointer<OBX_observer> Function(
+  ffi.Pointer<OBX_store> store,
+  ffi.Int64 dart_native_port,
+);
+
+typedef _dart_obx_dart_observe = ffi.Pointer<OBX_observer> Function(
+  ffi.Pointer<OBX_store> store,
+  int dart_native_port,
+);
+
+typedef _c_obx_dart_observe_single_type = ffi.Pointer<OBX_observer> Function(
+  ffi.Pointer<OBX_store> store,
+  ffi.Uint32 type_id,
+  ffi.Int64 dart_native_port,
+);
+
+typedef _dart_obx_dart_observe_single_type = ffi.Pointer<OBX_observer> Function(
+  ffi.Pointer<OBX_store> store,
+  int type_id,
+  int dart_native_port,
 );

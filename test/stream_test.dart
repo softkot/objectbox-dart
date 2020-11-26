@@ -20,6 +20,12 @@ void main() {
     box = env.box;
   });
 
+  // Yield execution to other isolates.
+  //
+  // We need to do this to receive an even in the stream before processing
+  // the remainder of the test case.
+  final yieldExecution = () async => await Future.delayed(Duration.zero);
+
   test('Subscribe to stream of entities', () async {
     final result = <String>[];
     final text = TestEntity_.tString;
@@ -33,16 +39,14 @@ void main() {
 
     box.put(TestEntity(tString: 'Hello world'));
 
-    // The delay is here to ensure that the callback execution is executed
-    // sequentially, otherwise the testing framework's execution  will be
-    // prioritized (for some reason), before any callback.
-    await Future.delayed(Duration(seconds: 0));
+    await yieldExecution();
 
     box.putMany(<TestEntity>[
       TestEntity(tString: 'Goodbye'),
       TestEntity(tString: 'for now')
     ]);
-    await Future.delayed(Duration(seconds: 0));
+
+    await yieldExecution();
 
     expect(result, ['Hello world', 'for now, Goodbye, Hello world']);
 
@@ -60,14 +64,16 @@ void main() {
     });
 
     box.put(TestEntity(tString: 'Hello world'));
-    await Future.delayed(Duration(seconds: 0));
+
+    await yieldExecution();
 
     // idem, see above
     box.putMany(<TestEntity>[
       TestEntity(tString: 'Goodbye'),
       TestEntity(tString: 'for now')
     ]);
-    await Future.delayed(Duration(seconds: 0));
+
+    await yieldExecution();
 
     expect(result, [1, 3]);
 
