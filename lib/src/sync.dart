@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:ffi';
+import 'dart:isolate';
 import 'dart:typed_data' show Uint8List;
 import 'dart:convert' show utf8;
 
@@ -62,10 +64,14 @@ enum SyncRequestUpdatesMode {
   autoNoPushes
 }
 
+enum SyncConnectionStateChange { connected, disconnected }
+
 /// Sync client is used to provide ObjectBox Sync client capabilities to your application.
 class SyncClient {
   final Store _store;
-  /*late final*/ Pointer<OBX_sync> _cSync;
+
+  /*late final*/
+  Pointer<OBX_sync> _cSync;
 
   /// The low-level pointer to this box.
   Pointer<OBX_sync> get ptr => (_cSync.address != 0)
@@ -209,6 +215,128 @@ class SyncClient {
     } finally {
       free(count);
     }
+  }
+
+  Stream<SyncConnectionStateChange> connectionStateChanges() {
+    // This stream combines events from two C listeners: connect & disconnect.
+    final group = _SyncListenerGroup('sync-connection');
+
+    group.add(_SyncListenerConfig(
+        (int nativePort) =>
+            bindings.obx_dart_sync_listener_connect(ptr, nativePort),
+        (_, controller) =>
+            controller.add(SyncConnectionStateChange.connected)));
+
+    group.add(_SyncListenerConfig(
+        (int nativePort) =>
+            bindings.obx_dart_sync_listener_disconnect(ptr, nativePort),
+        (_, controller) =>
+            controller.add(SyncConnectionStateChange.disconnected)));
+
+    return group.finish();
+  }
+}
+
+/// Configuration for _SyncListenerGroup, setting up a single native listener.
+class _SyncListenerConfig {
+  /// Function to create a new native listener.
+  final Pointer<OBX_dart_sync_listener> Function(int nativePort) cListenerInit;
+
+  /// Called on message from a native listener.
+  final void Function(dynamic msg, StreamController controller) dartListener;
+
+  _SyncListenerConfig(this.cListenerInit, this.dartListener);
+}
+
+/// Wrapper used in SyncClient for event listeners forwarding.
+/// Supports merging events from multiple native listeners to a single stream.
+class _SyncListenerGroup<StreamValueType> {
+  final String name;
+  bool finished = false;
+
+  /*late final*/
+  StreamController<StreamValueType> controller;
+  final _configs = <_SyncListenerConfig>[];
+
+  // currently active native listeners and ports attached to them
+  final _cListeners = <Pointer<OBX_dart_sync_listener>>[];
+  final _receivePorts = <ReceivePort>[];
+
+  /// start() is called whenever user starts listen()-ing to the stream
+  _SyncListenerGroup(this.name) {
+    initializeDartAPI();
+  }
+
+  /// Add a native->dart forwarder config to the group.
+  void add(_SyncListenerConfig config) {
+    assert(!finished, "Can't add more listners after calling finish().");
+    _configs.add(config);
+  }
+
+  /// Finish the group, creating a listener.
+  Stream<StreamValueType> finish() {
+    assert(!finished, 'finish() may only be called once.');
+    controller = StreamController<StreamValueType>(
+        onListen: _start, onPause: _stop, onResume: _start, onCancel: _stop);
+    return controller.stream;
+  }
+
+  // stop() is called when the stream subscription is started or resumed
+  void _start() {
+    _debugLog('starting');
+    assert(finished, 'Starting an unfinished group?!');
+
+    var hasError = false;
+    _configs.forEach((_SyncListenerConfig config) {
+      if (hasError) return;
+
+      // Initialize a receive port where the native listener will post messages.
+      final receivePort = ReceivePort()
+        ..listen((msg) => config.dartListener(msg, controller));
+
+      // Store the ReceivePort to be able to close it in _stop().
+      _receivePorts.add(receivePort);
+
+      // Start the native listener.
+      final cListener = config.cListenerInit(receivePort.sendPort.nativePort);
+      if (cListener == null) {
+        hasError = true;
+      } else {
+        _cListeners.add(cListener);
+      }
+    });
+
+    if (hasError) {
+      try {
+        throw latestNativeError(
+            dartMsg: 'Failed to initialize a sync native listener');
+      } finally {
+        _stop();
+      }
+    }
+
+    _debugLog('started');
+  }
+
+  // stop() is called when the stream subscription is paused or canceled
+  void _stop() {
+    _debugLog('stopping');
+    assert(finished, 'Starting an unfinished group?!');
+
+    final cErrorCodes = _cListeners.map(bindings.OBX_dart_sync_listener_close);
+    _cListeners.clear();
+
+    _receivePorts.forEach((rp) => rp.close());
+    _receivePorts.clear();
+
+    // throw on native, if any
+    cErrorCodes.map(checkObx);
+
+    _debugLog('stopped');
+  }
+
+  void _debugLog(String message) {
+    print('Listener ${name}: $message');
   }
 }
 
