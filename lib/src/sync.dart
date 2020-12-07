@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
-import 'dart:typed_data' show Uint8List;
+import 'dart:typed_data';
 import 'dart:convert' show utf8;
 
 import 'package:ffi/ffi.dart';
 
+import '../objectbox.dart';
 import 'store.dart';
 import 'util.dart';
 import 'bindings/bindings.dart';
@@ -68,6 +69,15 @@ enum SyncConnectionEvent { connected, disconnected }
 
 enum SyncLoginEvent { loggedIn, credentialsRejected, unknownError }
 
+class SyncChange {
+  final int entityId;
+  final Type entity;
+  final List<int> puts;
+  final List<int> removals;
+
+  SyncChange(this.entityId, this.entity, this.puts, this.removals);
+}
+
 /// Sync client is used to provide ObjectBox Sync client capabilities to your application.
 class SyncClient {
   final Store _store;
@@ -107,6 +117,7 @@ class SyncClient {
     _connectionEvents?._stop();
     _loginEvents?._stop();
     _completionEvents?._stop();
+    _changeEvents?._stop();
     final err = bindings.obx_sync_close(_cSync);
     _cSync = nullptr;
     syncClientsStorage.remove(_store);
@@ -229,7 +240,7 @@ class SyncClient {
   /// Subscribe (listen) to the stream to actually start listening to events.
   Stream<SyncConnectionEvent> get connectionEvents {
     if (_connectionEvents == null) {
-      // This stream combines events from two C listeners: connect & disconnect.
+      // Combine events from two C listeners: connect & disconnect.
       _connectionEvents =
           _SyncListenerGroup<SyncConnectionEvent>('sync-connection');
 
@@ -255,7 +266,7 @@ class SyncClient {
   /// Subscribe (listen) to the stream to actually start listening to events.
   Stream<SyncLoginEvent> get loginEvents {
     if (_loginEvents == null) {
-      // This stream combines events from two C listeners: connect & disconnect.
+      // Combine events from two C listeners: login & login-failure.
       _loginEvents = _SyncListenerGroup<SyncLoginEvent>('sync-login');
 
       _loginEvents.add(_SyncListenerConfig(
@@ -299,6 +310,79 @@ class SyncClient {
       _completionEvents.finish();
     }
     return _completionEvents.stream;
+  }
+
+  _SyncListenerGroup<List<SyncChange>> /*?*/ _changeEvents;
+
+  /// Get a broadcast stream of incoming synced data changes.
+  ///
+  /// Subscribe (listen) to the stream to actually start listening to events.
+  Stream<List<SyncChange>> get changeEvents {
+    if (_changeEvents == null) {
+      // This stream combines events from two C listeners: connect & disconnect.
+      _changeEvents = _SyncListenerGroup<List<SyncChange>>('sync-change');
+
+      // create a map from Entity ID to Entity type (dart class)
+      final entityTypesById = <int, Type>{};
+      _store.defs.bindings.forEach((Type entity, EntityDefinition entityDef) =>
+          entityTypesById[entityDef.model.id.id] = entity);
+
+      _changeEvents.add(_SyncListenerConfig(
+          (int nativePort) =>
+              bindings.obx_dart_sync_listener_change(ptr, nativePort),
+          (syncChanges, controller) {
+        if (syncChanges is! List) {
+          controller.addError(Exception(
+              'Received invalid data type from the core notification: (${syncChanges.runtimeType}) $syncChanges'));
+          return;
+        }
+
+        // List<SyncChange> is flattened to List<dynamic>, with SyncChange object
+        // properties always coming in groups of three (entityId, puts, removals)
+        const numProperties = 3;
+        if (syncChanges.length % numProperties != 0) {
+          controller.addError(Exception(
+              'Received invalid list length from the core notification: (${syncChanges.runtimeType}) $syncChanges'));
+          return;
+        }
+
+        final changes = <SyncChange>[];
+        for (var i = 0; i < syncChanges.length / numProperties; i++) {
+          final entityId = syncChanges[i * numProperties + 0];
+          final putsBytes = syncChanges[i * numProperties + 1];
+          final removalsBytes = syncChanges[i * numProperties + 2];
+
+          final entityType = entityTypesById[entityId];
+          if (entityType == null) {
+            controller.addError(Exception(
+                'Received sync change notification for an unknown entity ID $entityId'));
+            return;
+          }
+
+          if (entityId is! int ||
+              putsBytes is! Uint8List ||
+              removalsBytes is! Uint8List) {
+            controller.addError(Exception(
+                'Received invalid list items format from the core notification at i=${i}: '
+                'entityId = (${entityId.runtimeType}) $entityId; '
+                'putsBytes = (${putsBytes.runtimeType}) $putsBytes; '
+                'removalsBytes = (${removalsBytes.runtimeType}) $removalsBytes'));
+            return;
+          }
+
+          changes.add(SyncChange(
+              entityId,
+              entityType,
+              Uint64List.view(putsBytes.buffer).toList(),
+              Uint64List.view(removalsBytes.buffer).toList()));
+        }
+
+        controller.add(changes);
+      }));
+
+      _changeEvents.finish();
+    }
+    return _changeEvents.stream;
   }
 }
 
@@ -372,7 +456,7 @@ class _SyncListenerGroup<StreamValueType> {
 
       // Start the native listener.
       final cListener = config.cListenerInit(receivePort.sendPort.nativePort);
-      if (cListener == null) {
+      if (cListener == null || cListener == nullptr) {
         hasError = true;
       } else {
         _cListeners.add(cListener);
@@ -451,44 +535,3 @@ class Sync {
     return client;
   }
 }
-
-/* BACKUP: Sync change listener async callback message handling
-  ReceivePort()..listen((syncChanges) {
-          if (syncChanges is! List) {
-            observer.controller.addError(Exception(
-                'Received invalid data type from the core notification: (${syncChanges.runtimeType}) $syncChanges'));
-            return;
-          }
-
-          // List<SyncChange> is flattened to List<dynamic>, with SyncChange object
-          // properties always coming in groups of three (entityId, puts, removals)
-          const numProperties = 3;
-          if (syncChanges.length % numProperties != 0) {
-            observer.controller.addError(Exception(
-                'Received invalid list length from the core notification: (${syncChanges.runtimeType}) $syncChanges'));
-            return;
-          }
-
-          for (var i = 0; i < syncChanges.length / numProperties; i++) {
-            final entityId = syncChanges[i * numProperties + 0];
-            final putsBytes = syncChanges[i * numProperties + 1];
-            final removalsBytes = syncChanges[i * numProperties + 2];
-
-            if (entityId is! int ||
-                putsBytes is! Uint8List ||
-                removalsBytes is! Uint8List) {
-              observer.controller.addError(Exception(
-                  'Received invalid list items format from the core notification at i=${i}: '
-                  'entityId = (${entityId.runtimeType}) $entityId; '
-                  'putsBytes = (${putsBytes.runtimeType}) $putsBytes; '
-                  'removalsBytes = (${removalsBytes.runtimeType}) $removalsBytes'));
-              return;
-            }
-
-            final puts = Uint64List.view(putsBytes.buffer).toList();
-            final removals = Uint64List.view(removalsBytes.buffer).toList();
-
-            // forward the event with entityId, puts & removals
-          }
-      });
-*/
