@@ -66,6 +66,8 @@ enum SyncRequestUpdatesMode {
 
 enum SyncConnectionEvent { connected, disconnected }
 
+enum SyncLoginEvent { loggedIn, credentialsRejected, unknownError }
+
 /// Sync client is used to provide ObjectBox Sync client capabilities to your application.
 class SyncClient {
   final Store _store;
@@ -103,6 +105,7 @@ class SyncClient {
   /// Does nothing if this sync client has already been closed.
   void close() {
     _connectionEvents?._stop();
+    _loginEvents?._stop();
     final err = bindings.obx_sync_close(_cSync);
     _cSync = nullptr;
     syncClientsStorage.remove(_store);
@@ -242,6 +245,39 @@ class SyncClient {
       _connectionEvents.finish();
     }
     return _connectionEvents.stream;
+  }
+
+  _SyncListenerGroup<SyncLoginEvent> /*?*/ _loginEvents;
+
+  /// Get a broadcast stream of login events (success/failure).
+  ///
+  /// Subscribe (listen) to the stream to actually start listening to events.
+  Stream<SyncLoginEvent> get loginEvents {
+    if (_loginEvents == null) {
+      // This stream combines events from two C listeners: connect & disconnect.
+      _loginEvents = _SyncListenerGroup<SyncLoginEvent>('sync-login');
+
+      _loginEvents.add(_SyncListenerConfig(
+          (int nativePort) =>
+              bindings.obx_dart_sync_listener_login(ptr, nativePort),
+          (_, controller) => controller.add(SyncLoginEvent.loggedIn)));
+
+      _loginEvents.add(_SyncListenerConfig(
+          (int nativePort) =>
+              bindings.obx_dart_sync_listener_login_failure(ptr, nativePort),
+          (code, controller) {
+        // see OBXSyncCode - TODO should we match any other codes?
+        switch (code) {
+          case OBXSyncCode.CREDENTIALS_REJECTED:
+            return controller.add(SyncLoginEvent.credentialsRejected);
+          default:
+            return controller.add(SyncLoginEvent.unknownError);
+        }
+      }));
+
+      _loginEvents.finish();
+    }
+    return _loginEvents.stream;
   }
 }
 
