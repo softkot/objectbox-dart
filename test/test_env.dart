@@ -41,3 +41,9 @@ bool waitUntil(bool Function() predicate, {int timeoutMs = 1000}) {
   }
   return success;
 }
+
+// Yield execution to other isolates.
+//
+// We need to do this to receive an event in the stream before processing
+// the remainder of the test case.
+final yieldExecution = () async => await Future.delayed(Duration.zero);
