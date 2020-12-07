@@ -20,6 +20,7 @@ class Store {
   /*late final*/ Pointer<OBX_store> _cStore;
   final _boxes = <Type, Box>{};
   final ModelDefinition defs;
+  bool _closed = false;
 
   /// Creates a BoxStore using the model definition from your
   /// `objectbox.g.dart` file.
@@ -100,6 +101,8 @@ class Store {
   ///
   /// Don't try to call any other ObjectBox methods after the store is closed.
   void close() {
+    if (_closed) return;
+    _closed = true;
     _boxes.clear();
 
     // Call each "onBeforeClose()" event listener.
