@@ -106,6 +106,7 @@ class SyncClient {
   void close() {
     _connectionEvents?._stop();
     _loginEvents?._stop();
+    _completionEvents?._stop();
     final err = bindings.obx_sync_close(_cSync);
     _cSync = nullptr;
     syncClientsStorage.remove(_store);
@@ -278,6 +279,26 @@ class SyncClient {
       _loginEvents.finish();
     }
     return _loginEvents.stream;
+  }
+
+  _SyncListenerGroup<void> /*?*/ _completionEvents;
+
+  /// Get a broadcast stream of sync completion events - when synchronization
+  /// of incoming changes has completed.
+  ///
+  /// Subscribe (listen) to the stream to actually start listening to events.
+  Stream<void> get completionEvents {
+    if (_completionEvents == null) {
+      _completionEvents = _SyncListenerGroup<void>('sync-completion');
+
+      _completionEvents.add(_SyncListenerConfig(
+          (int nativePort) =>
+              bindings.obx_dart_sync_listener_complete(ptr, nativePort),
+          (_, controller) => controller.add(null)));
+
+      _completionEvents.finish();
+    }
+    return _completionEvents.stream;
   }
 }
 
