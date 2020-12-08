@@ -35,9 +35,9 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'OB Example',
+      title: 'OB Example (sync)',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: MyHomePage(title: 'OB Example'),
+      home: MyHomePage(title: 'OB Example (sync)'),
     );
   }
 }
@@ -65,11 +65,12 @@ class ViewModel {
     _query = _box.query().order(dateProp, flags: Order.descending).build();
 
     // TODO configure actual sync server address and authentication
+    // For configuration and docs, see objectbox/lib/src/sync.dart
     // 10.0.2.2 is your host PC if an app is run in an Android emulator.
     // 127.0.0.1 is your host PC if an app is run in an iOS simulator.
-    // For other options, see objectbox/lib/src/sync.dart
+    final syncServerIp = Platform.isAndroid ? '10.0.2.2' : '127.0.0.1';
     final syncClient =
-        Sync.client(_store, 'ws://10.0.2.2:9999', SyncCredentials.none());
+        Sync.client(_store, 'ws://$syncServerIp:9999', SyncCredentials.none());
     syncClient.start();
   }
 
@@ -77,11 +78,7 @@ class ViewModel {
 
   void removeNote(Note note) => _box.remove(note.id);
 
-  // Note: using query.findStream() and sync.client() in the same app is
-  // currently not supported so this app is currently not working and only
-  // servers as an example on how and when to start a sync client.
-  // Stream<List<Note>> get queryStream => _query.findStream();
-  Stream<List<Note>> get queryStream => Stream<List<Note>>.empty();
+  Stream<List<Note>> get queryStream => _query.findStream();
 
   List<Note> get allNotes => _query.find();
 
@@ -145,6 +142,8 @@ class _MyHomePageState extends State<MyHomePage> {
                         style: TextStyle(
                           fontSize: 15.0,
                         ),
+                        // Provide a Key for the integration test
+                        key: Key('list_item_${index}'),
                       ),
                       Padding(
                         padding: EdgeInsets.only(top: 5.0),
@@ -189,6 +188,8 @@ class _MyHomePageState extends State<MyHomePage> {
                             InputDecoration(hintText: 'Enter a new note'),
                         controller: _noteInputController,
                         onSubmitted: (value) => _addNote(),
+                        // Provide a Key for the integration test
+                        key: Key('input'),
                       ),
                     ),
                     Padding(
@@ -221,6 +222,14 @@ class _MyHomePageState extends State<MyHomePage> {
                       itemBuilder: _itemBuilder(snapshot.data));
                 }))
       ]),
+      // We need a separate submit button because flutter_driver integration
+      // test doesn't support submitting a TextField using "enter" key.
+      // See https://github.com/flutter/flutter/issues/9383
+      floatingActionButton: FloatingActionButton(
+        key: Key('submit'),
+        onPressed: _addNote,
+        child: Icon(Icons.add),
+      ),
     );
   }
 }
