@@ -34,7 +34,7 @@ ObjectBoxC loadObjectBoxLib() {
 
 ObjectBoxC /*?*/ _cachedBindings;
 
-ObjectBoxC get bindings => _cachedBindings ??= loadObjectBoxLib();
+ObjectBoxC get C => _cachedBindings ??= loadObjectBoxLib();
 
 /// Init DartAPI in C for async callbacks.
 ///
@@ -43,7 +43,7 @@ ObjectBoxC get bindings => _cachedBindings ??= loadObjectBoxLib();
 /// See https://github.com/objectbox/objectbox-dart/issues/143
 void initializeDartAPI() {
   if (_dartAPIinitialized == null) {
-    final errCode = bindings.obx_dart_init_api(NativeApi.initializeApiDLData);
+    final errCode = C.dartc_init_api(NativeApi.initializeApiDLData);
     _dartAPIinitialized = (OBX_SUCCESS == errCode);
     if (!_dartAPIinitialized) {
       _dartAPIinitException = latestNativeError(codeIfMissing: errCode);

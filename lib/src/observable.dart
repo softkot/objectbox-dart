@@ -39,7 +39,7 @@ class _Observer<StreamValueType> {
   void stop() {
     _debugLog('stopped');
     if (_cObserver != null) {
-      checkObx(bindings.obx_observer_close(_cObserver));
+      checkObx(C.observer_close(_cObserver));
       _cObserver = null;
     }
 
@@ -73,8 +73,8 @@ extension ObservableStore on Store {
       // using StreamController<Void> so the argument type is `void`.
       observer.receivePort = ReceivePort()
         ..listen((_) => observer.controller.add(null));
-      observer.cObserver = bindings.obx_dart_observe_single_type(
-          ptr, entityId, observer.nativePort);
+      observer.cObserver =
+          C.dartc_observe_single_type(ptr, entityId, observer.nativePort);
     });
 
     return observer.stream;
@@ -121,7 +121,7 @@ extension ObservableStore on Store {
             }
           });
         });
-      observer.cObserver = bindings.obx_dart_observe(ptr, observer.nativePort);
+      observer.cObserver = C.dartc_observe(ptr, observer.nativePort);
     });
 
     return observer.stream;
